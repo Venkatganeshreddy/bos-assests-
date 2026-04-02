@@ -872,16 +872,16 @@ except Exception as exc:
 with st.sidebar:
     st.markdown('<div class="bos-sidebar-title">BOS Setup</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="bos-sidebar-subtitle">Connect the folder, click index, then start asking questions.</div>',
+        '<div class="bos-sidebar-subtitle">This app is locked to the BOS assets folder. Click index, then start asking questions.</div>',
         unsafe_allow_html=True,
     )
     render_sidebar_status(st.session_state.folder_bundle)
-    folder_url = st.text_input(
-        "Drive folder URL",
-        value=DEFAULT_FOLDER_URL,
-        placeholder="https://drive.google.com/drive/folders/...",
-        help="Share this folder with the service account below, then index it here.",
-    )
+    folder_url = DEFAULT_FOLDER_URL
+    if folder_url:
+        st.caption("Configured BOS folder")
+        st.code(folder_url, language=None)
+    else:
+        st.error("DRIVE_FOLDER_URL is missing in app secrets.")
 
     with st.expander("Advanced settings", expanded=False):
         model_name = st.text_input("OpenRouter model", value=DEFAULT_MODEL)
@@ -921,7 +921,7 @@ with st.sidebar:
 
 if index_clicked:
     if not folder_url.strip():
-        st.error("Enter a Google Drive folder URL first.")
+        st.error("Set DRIVE_FOLDER_URL in Streamlit secrets first.")
     else:
         try:
             with st.spinner("Indexing the BOS asset folder..."):
