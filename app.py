@@ -616,9 +616,11 @@ st.markdown(
 
 def load_folder_index(
     folder_url: str,
+    progress_callback=None,
 ) -> dict:
     return index_drive_folder_with_options(
         folder_url=folder_url,
+        progress_callback=progress_callback,
     )
 
 
@@ -917,9 +919,23 @@ if index_clicked:
     else:
         try:
             with st.spinner("Indexing the BOS asset folder..."):
+                progress_text = st.empty()
+                progress_bar = st.progress(0)
+
+                def _update_progress(current: int, total: int, label: str = "") -> None:
+                    ratio = 0 if total <= 0 else current / total
+                    progress_bar.progress(ratio)
+                    if total <= 0:
+                        progress_text.caption("Scanning BOS assets...")
+                    else:
+                        progress_text.caption(f"Indexed {current}/{total}: {label}")
+
                 folder_payload = load_folder_index(
                     folder_url=folder_url.strip(),
+                    progress_callback=_update_progress,
                 )
+                progress_bar.empty()
+                progress_text.empty()
                 st.session_state.folder_bundle = build_runtime_bundle(folder_payload)
                 st.session_state.messages = [
                     {

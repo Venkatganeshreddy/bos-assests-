@@ -57,6 +57,7 @@ IMAGE_FILE_SUFFIXES = {
 
 SHEET_META_FIELDS = "properties.title,sheets.properties.title"
 MAX_SHEET_ROWS = 401
+MAX_INDEX_FILE_BYTES = 8 * 1024 * 1024
 
 
 @dataclass
@@ -125,6 +126,7 @@ def index_drive_folder(folder_url: str) -> dict[str, Any]:
 
 def index_drive_folder_with_options(
     folder_url: str,
+    progress_callback=None,
 ) -> dict[str, Any]:
     folder_id = extract_folder_id(folder_url)
     credentials = load_credentials()
@@ -150,7 +152,22 @@ def index_drive_folder_with_options(
         visited_folders=set(),
     )
 
-    for item in items:
+    total_items = len(items)
+    _report_progress(progress_callback, 0, total_items, "Scanning BOS assets...")
+
+    for index, item in enumerate(items, start=1):
+        size_bytes = _coerce_size_bytes(item.get("size"))
+        if size_bytes is not None and size_bytes > MAX_INDEX_FILE_BYTES:
+            skipped.append(
+                {
+                    "name": item["path"],
+                    "reason": f"Skipped because file is larger than {MAX_INDEX_FILE_BYTES // (1024 * 1024)} MB.",
+                    "link": _item_open_link(item),
+                }
+            )
+            _report_progress(progress_callback, index, total_items, item["path"])
+            continue
+
         extracted = _extract_item_for_index(
             _drive_service=drive_service,
             _sheets_service=sheets_service,
@@ -164,9 +181,10 @@ def index_drive_folder_with_options(
 
         if extracted.get("document"):
             documents.append(DriveDocument(**extracted["document"]))
-            continue
+        else:
+            skipped.append(extracted["skipped"])
 
-        skipped.append(extracted["skipped"])
+        _report_progress(progress_callback, index, total_items, item["path"])
 
     return {
         "folder_id": folder_id,
@@ -176,6 +194,21 @@ def index_drive_folder_with_options(
         "documents": documents,
         "skipped": skipped,
     }
+
+
+def _report_progress(callback, current: int, total: int, label: str = "") -> None:
+    if not callback:
+        return
+    callback(current, total, label)
+
+
+def _coerce_size_bytes(raw_size: Any) -> int | None:
+    if raw_size in (None, ""):
+        return None
+    try:
+        return int(raw_size)
+    except (TypeError, ValueError):
+        return None
 
 
 @st.cache_data(ttl=43200, show_spinner=False)
