@@ -637,6 +637,37 @@ def build_runtime_bundle(folder_payload: dict) -> dict:
     }
 
 
+def run_index(folder_url: str) -> None:
+    with st.spinner("Indexing the BOS asset folder..."):
+        progress_text = st.empty()
+        progress_bar = st.progress(0)
+
+        def _update_progress(current: int, total: int, label: str = "") -> None:
+            ratio = 0 if total <= 0 else current / total
+            progress_bar.progress(ratio)
+            if total <= 0:
+                progress_text.caption("Scanning BOS assets...")
+            else:
+                progress_text.caption(f"Indexed {current}/{total}: {label}")
+
+        folder_payload = load_folder_index(
+            folder_url=folder_url.strip(),
+            progress_callback=_update_progress,
+        )
+        progress_bar.empty()
+        progress_text.empty()
+        st.session_state.folder_bundle = build_runtime_bundle(folder_payload)
+        st.session_state.messages = [
+            {
+                "role": "assistant",
+                "content": (
+                    f"I indexed **{folder_payload['folder_name']}** and I'm ready to answer "
+                    "questions with file-backed citations."
+                ),
+            }
+        ]
+
+
 def render_hero(bundle: dict | None) -> None:
     ready = bundle is not None
     status_title = "Ready" if ready else "Not indexed"
@@ -948,6 +979,12 @@ if index_clicked:
                 ]
         except Exception as exc:
             st.error(str(exc))
+
+if not st.session_state.folder_bundle and folder_url.strip() and not credentials_error:
+    try:
+        run_index(folder_url)
+    except Exception as exc:
+        st.error(str(exc))
 
 bundle = st.session_state.folder_bundle
 
