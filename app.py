@@ -18,6 +18,8 @@ load_dotenv()
 
 DEFAULT_FOLDER_URL = get_setting("DRIVE_FOLDER_URL")
 DEFAULT_MODEL = get_setting("OPENROUTER_MODEL", "google/gemini-2.0-flash-lite-001")
+DEFAULT_OCR_MODEL = ""
+DEFAULT_OCR_ENABLED = False
 OPENROUTER_API_KEY = get_setting("OPENROUTER_API_KEY")
 
 st.set_page_config(
