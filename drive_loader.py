@@ -55,11 +55,8 @@ IMAGE_FILE_SUFFIXES = {
     ".tiff",
 }
 
-SHEET_FIELDS = (
-    "properties.title,"
-    "sheets.properties.title,"
-    "sheets.data.rowData.values.formattedValue"
-)
+SHEET_META_FIELDS = "properties.title,sheets.properties.title"
+MAX_SHEET_ROWS = 401
 
 
 @dataclass
@@ -155,52 +152,33 @@ def index_drive_folder_with_options(
     documents: list[DriveDocument] = []
     skipped: list[dict[str, str]] = []
 
-    for item in _walk_folder(
+    items = _walk_folder(
         drive_service=drive_service,
         folder_id=folder_id,
         prefix=folder_meta.get("name", "BOS Assets"),
         visited_folders=set(),
-    ):
-        try:
-            text, source_kind = _extract_item_text(
-                drive_service=drive_service,
-                sheets_service=sheets_service,
-                item=item,
-                enable_ocr=enable_ocr,
-                ocr_model=ocr_model,
-                openrouter_api_key=openrouter_api_key,
-            )
-            normalized = _normalize_extracted_text(text)
-            if not normalized:
-                skipped.append(
-                    {
-                        "name": item["path"],
-                        "reason": "The file did not contain readable text.",
-                        "link": _item_open_link(item),
-                    }
-                )
-                continue
+    )
 
-            documents.append(
-                DriveDocument(
-                    file_id=item["effectiveId"],
-                    name=item["name"],
-                    mime_type=item["effectiveMimeType"],
-                    path=item["path"],
-                    web_view_link=item.get("webViewLink", ""),
-                    modified_time=item.get("modifiedTime", ""),
-                    source_kind=source_kind,
-                    text=normalized,
-                )
-            )
-        except Exception as exc:
-            skipped.append(
-                {
-                    "name": item["path"],
-                    "reason": str(exc)[:220],
-                    "link": _item_open_link(item),
-                }
-            )
+    for item in items:
+        extracted = _extract_item_for_index(
+            _drive_service=drive_service,
+            _sheets_service=sheets_service,
+            file_id=item["effectiveId"],
+            mime_type=item["effectiveMimeType"],
+            name=item["name"],
+            path=item["path"],
+            web_view_link=item.get("webViewLink", ""),
+            modified_time=item.get("modifiedTime", ""),
+            enable_ocr=enable_ocr,
+            ocr_model=ocr_model,
+            openrouter_api_key=openrouter_api_key,
+        )
+
+        if extracted.get("document"):
+            documents.append(DriveDocument(**extracted["document"]))
+            continue
+
+        skipped.append(extracted["skipped"])
 
     return {
         "folder_id": folder_id,
@@ -212,6 +190,74 @@ def index_drive_folder_with_options(
         "ocr_enabled": enable_ocr,
         "ocr_model": ocr_model,
     }
+
+
+@st.cache_data(ttl=43200, show_spinner=False)
+def _extract_item_for_index(
+    _drive_service: Any,
+    _sheets_service: Any,
+    *,
+    file_id: str,
+    mime_type: str,
+    name: str,
+    path: str,
+    web_view_link: str,
+    modified_time: str,
+    enable_ocr: bool,
+    ocr_model: str,
+    openrouter_api_key: str,
+) -> dict[str, Any]:
+    item = {
+        "effectiveId": file_id,
+        "effectiveMimeType": mime_type,
+        "name": name,
+        "path": path,
+        "webViewLink": web_view_link,
+        "modifiedTime": modified_time,
+    }
+
+    try:
+        text, source_kind = _extract_item_text(
+            drive_service=_drive_service,
+            sheets_service=_sheets_service,
+            item=item,
+            enable_ocr=enable_ocr,
+            ocr_model=ocr_model,
+            openrouter_api_key=openrouter_api_key,
+        )
+        normalized = _normalize_extracted_text(text)
+        if not normalized:
+            return {
+                "document": None,
+                "skipped": {
+                    "name": path,
+                    "reason": "The file did not contain readable text.",
+                    "link": _item_open_link(item),
+                },
+            }
+
+        return {
+            "document": {
+                "file_id": file_id,
+                "name": name,
+                "mime_type": mime_type,
+                "path": path,
+                "web_view_link": web_view_link,
+                "modified_time": modified_time,
+                "source_kind": source_kind,
+                "text": normalized,
+            },
+            "skipped": None,
+        }
+    except Exception as exc:
+        return {
+            "document": None,
+            "skipped": {
+                "name": path,
+                "reason": str(exc)[:220],
+                "link": _item_open_link(item),
+            },
+        }
 
 
 def _walk_folder(
@@ -323,12 +369,12 @@ def _extract_item_text(
     if mime_type == GOOGLE_SHEET_MIME:
         return _render_google_sheet(sheets_service, file_id), "google-sheet"
 
-    file_bytes = _download_file_bytes(drive_service, file_id)
-
     if mime_type == "image/svg+xml" or lowered_name.endswith(".svg"):
+        file_bytes = _download_file_bytes(drive_service, file_id)
         return _render_text_like(file_bytes, lowered_name), "svg"
 
     if mime_type == "application/pdf" or lowered_name.endswith(".pdf"):
+        file_bytes = _download_file_bytes(drive_service, file_id)
         rendered_pdf_text = _render_pdf(file_bytes)
         if not _needs_pdf_ocr(rendered_pdf_text):
             return rendered_pdf_text, "pdf"
@@ -343,6 +389,7 @@ def _extract_item_text(
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         or lowered_name.endswith(".docx")
     ):
+        file_bytes = _download_file_bytes(drive_service, file_id)
         return _render_docx(file_bytes), "docx"
 
     if (
@@ -350,6 +397,7 @@ def _extract_item_text(
         == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         or lowered_name.endswith(".pptx")
     ):
+        file_bytes = _download_file_bytes(drive_service, file_id)
         return _render_pptx(file_bytes), "pptx"
 
     if (
@@ -358,9 +406,11 @@ def _extract_item_text(
         or lowered_name.endswith(".xlsx")
         or lowered_name.endswith(".xlsm")
     ):
+        file_bytes = _download_file_bytes(drive_service, file_id)
         return _render_excel(file_bytes), "spreadsheet-file"
 
     if mime_type.startswith("text/") or any(lowered_name.endswith(suffix) for suffix in TEXT_FILE_SUFFIXES):
+        file_bytes = _download_file_bytes(drive_service, file_id)
         return _render_text_like(file_bytes, lowered_name), "text-file"
 
     if _is_image_file(mime_type, lowered_name):
@@ -368,6 +418,7 @@ def _extract_item_text(
             raise ValueError("Image OCR is disabled. Enable OCR to index image files.")
         if not openrouter_api_key:
             raise ValueError("Image OCR requires OPENROUTER_API_KEY.")
+        file_bytes = _download_file_bytes(drive_service, file_id)
         return extract_text_from_image(file_bytes, openrouter_api_key, ocr_model, mime_type, name), "image-ocr"
 
     raise ValueError(f"Unsupported file type: {mime_type}")
@@ -396,20 +447,29 @@ def _download_file_bytes(drive_service: Any, file_id: str) -> bytes:
 def _render_google_sheet(sheets_service: Any, spreadsheet_id: str) -> str:
     spreadsheet = sheets_service.spreadsheets().get(
         spreadsheetId=spreadsheet_id,
-        includeGridData=True,
-        fields=SHEET_FIELDS,
+        fields=SHEET_META_FIELDS,
     ).execute()
 
     title = spreadsheet.get("properties", {}).get("title", "Untitled spreadsheet")
     parts = [f"Spreadsheet: {title}"]
+    sheet_names = [
+        sheet.get("properties", {}).get("title", "Sheet")
+        for sheet in spreadsheet.get("sheets", [])
+    ]
 
-    for sheet in spreadsheet.get("sheets", []):
-        tab_name = sheet.get("properties", {}).get("title", "Sheet")
-        row_data = sheet.get("data", [{}])[0].get("rowData", [])
-        rows = [
-            [cell.get("formattedValue", "") for cell in row.get("values", [])]
-            for row in row_data
-        ]
+    if not sheet_names:
+        return "\n".join(parts)
+
+    values_payload = sheets_service.spreadsheets().values().batchGet(
+        spreadsheetId=spreadsheet_id,
+        ranges=[_sheet_preview_range(sheet_name) for sheet_name in sheet_names],
+        majorDimension="ROWS",
+        valueRenderOption="FORMATTED_VALUE",
+    ).execute()
+    value_ranges = values_payload.get("valueRanges", [])
+
+    for index, tab_name in enumerate(sheet_names):
+        rows = value_ranges[index].get("values", []) if index < len(value_ranges) else []
         if not any(any(cell.strip() for cell in row) for row in rows):
             continue
 
@@ -437,6 +497,11 @@ def _render_google_sheet(sheets_service: Any, spreadsheet_id: str) -> str:
                     parts.append(f"Row {row_number}: {flattened}")
 
     return "\n".join(parts)
+
+
+def _sheet_preview_range(sheet_name: str) -> str:
+    escaped_name = sheet_name.replace("'", "''")
+    return f"'{escaped_name}'!1:{MAX_SHEET_ROWS}"
 
 
 def _render_pdf(file_bytes: bytes) -> str:

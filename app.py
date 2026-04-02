@@ -620,7 +620,6 @@ st.markdown(
 )
 
 
-@st.cache_data(ttl=900, show_spinner=False)
 def load_folder_index(
     folder_url: str,
     enable_ocr: bool,
@@ -897,7 +896,10 @@ with st.sidebar:
             value=DEFAULT_OCR_ENABLED,
             help="Uses OpenRouter during indexing for image files and scanned PDF documents.",
         )
-        st.caption(f"OCR status: {'On' if enable_ocr else 'Off'}")
+        st.caption(
+            f"OCR status: {'On' if enable_ocr else 'Off'}"
+            + (" • slower indexing" if enable_ocr else "")
+        )
         ocr_model_name = st.text_input("OCR model", value=DEFAULT_OCR_MODEL)
 
     if "enable_ocr" not in locals():
