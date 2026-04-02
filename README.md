@@ -33,6 +33,19 @@ Separate Streamlit app for chatting with a single Google Drive folder of BOS bra
 4. Share the target Drive folder with the service account email.
 5. Run `streamlit run app.py`.
 
+## Streamlit Cloud
+
+Add these app secrets in Streamlit Cloud:
+
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_MODEL`
+- `OCR_ENABLED`
+- `OCR_MODEL`
+- `DRIVE_FOLDER_URL`
+- `google_service_account` or `gcp_service_account`
+
+An example file is included at `.streamlit/secrets.toml.example`.
+
 ## Notes
 
 - This app is intentionally separate from the sheets chatbot project.

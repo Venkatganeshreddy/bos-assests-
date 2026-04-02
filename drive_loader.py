@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+from config_runtime import get_json_env, get_secret_mapping
 from docx import Document as DocxDocument
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -92,22 +93,19 @@ def get_service_account_email_from_config() -> str:
 
 
 def load_credentials() -> Credentials:
-    try:
-        raw_secret = st.secrets["gcp_service_account"]
-        info = json.loads(json.dumps(dict(raw_secret)))
-        return Credentials.from_service_account_info(info, scopes=SCOPES)
-    except Exception:
-        pass
+    secret_info = get_secret_mapping("gcp_service_account", "google_service_account")
+    if secret_info:
+        return Credentials.from_service_account_info(secret_info, scopes=SCOPES)
 
-    env_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
-    if env_json:
-        return Credentials.from_service_account_info(json.loads(env_json), scopes=SCOPES)
+    env_info = get_json_env("GCP_SERVICE_ACCOUNT_JSON", "GOOGLE_SERVICE_ACCOUNT_JSON")
+    if env_info:
+        return Credentials.from_service_account_info(env_info, scopes=SCOPES)
 
     credentials_path = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
     if not os.path.exists(credentials_path):
         raise FileNotFoundError(
             "Google credentials not found. Set GOOGLE_CREDENTIALS_PATH or add "
-            "`gcp_service_account` to Streamlit secrets."
+            "`gcp_service_account` or `google_service_account` to Streamlit secrets."
         )
 
     return Credentials.from_service_account_file(credentials_path, scopes=SCOPES)

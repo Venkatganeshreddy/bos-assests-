@@ -8,6 +8,7 @@ from html import escape
 import streamlit as st
 from dotenv import load_dotenv
 
+from config_runtime import get_setting
 from drive_loader import get_service_account_email_from_config, index_drive_folder_with_options
 from llm import ask_openrouter
 from retrieval import build_chunks, build_context, build_index, retrieve, serialize_sources
@@ -15,18 +16,11 @@ from retrieval import build_chunks, build_context, build_index, retrieve, serial
 load_dotenv()
 
 
-def get_secret(key: str, default: str = "") -> str:
-    try:
-        return str(st.secrets[key])
-    except Exception:
-        return os.getenv(key, default)
-
-
-DEFAULT_FOLDER_URL = get_secret("DRIVE_FOLDER_URL")
-DEFAULT_MODEL = get_secret("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-DEFAULT_OCR_MODEL = get_secret("OCR_MODEL", "openai/gpt-4o-mini")
-DEFAULT_OCR_ENABLED = get_secret("OCR_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
-OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY")
+DEFAULT_FOLDER_URL = get_setting("DRIVE_FOLDER_URL")
+DEFAULT_MODEL = get_setting("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+DEFAULT_OCR_MODEL = get_setting("OCR_MODEL", "openai/gpt-4o-mini")
+DEFAULT_OCR_ENABLED = get_setting("OCR_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+OPENROUTER_API_KEY = get_setting("OPENROUTER_API_KEY")
 
 st.set_page_config(
     page_title="BOS Assets Chatbot",
