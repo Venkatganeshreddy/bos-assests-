@@ -18,8 +18,6 @@ load_dotenv()
 
 DEFAULT_FOLDER_URL = get_setting("DRIVE_FOLDER_URL")
 DEFAULT_MODEL = get_setting("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-DEFAULT_OCR_MODEL = get_setting("OCR_MODEL", "openai/gpt-4o-mini")
-DEFAULT_OCR_ENABLED = get_setting("OCR_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 OPENROUTER_API_KEY = get_setting("OPENROUTER_API_KEY")
 
 st.set_page_config(
@@ -616,15 +614,9 @@ st.markdown(
 
 def load_folder_index(
     folder_url: str,
-    enable_ocr: bool,
-    ocr_model: str,
-    _openrouter_api_key: str,
 ) -> dict:
     return index_drive_folder_with_options(
         folder_url=folder_url,
-        enable_ocr=enable_ocr,
-        ocr_model=ocr_model,
-        openrouter_api_key=_openrouter_api_key,
     )
 
 
@@ -650,8 +642,6 @@ def render_hero(bundle: dict | None) -> None:
         else "Click Index BOS Folder to activate search."
     )
     folder_chip = bundle["folder_name"] if ready else "No folder indexed yet"
-    ocr_chip = "OCR enabled" if bundle and bundle.get("ocr_enabled") else "OCR optional"
-
     st.markdown(
         f"""
         <div class="bos-shell">
@@ -667,7 +657,7 @@ def render_hero(bundle: dict | None) -> None:
                     <div class="bos-chip-row">
                         <div class="bos-chip">Folder: {escape(folder_chip)}</div>
                         <div class="bos-chip">Mode: file-backed answers</div>
-                        <div class="bos-chip">{escape(ocr_chip)}</div>
+                        <div class="bos-chip">OCR disabled</div>
                     </div>
                 </div>
                 <div class="bos-status-card">
@@ -722,7 +712,7 @@ def render_quickstart(bundle: dict | None) -> None:
         ]
     else:
         steps = [
-            ("Step 1", "Paste folder URL", "Use the BOS Drive folder link in the sidebar."),
+            ("Step 1", "Use configured folder", "The app is pinned to the BOS Drive folder."),
             ("Step 2", "Click Index BOS Folder", "The app will read files and prepare search."),
             ("Step 3", "Start chatting", "Ask about assets once indexing finishes."),
         ]
@@ -750,7 +740,7 @@ def render_overview(bundle: dict) -> None:
             "Drive Link",
             f'<a href="{escape(bundle["folder_link"])}" target="_blank">Open source folder</a>',
         ),
-        ("OCR Mode", "Enabled" if bundle.get("ocr_enabled") else "Disabled"),
+        ("OCR Mode", "Disabled"),
     ]
 
     cards = "".join(
@@ -773,7 +763,7 @@ def render_empty_state() -> None:
             To start the conversation, share the target Drive folder with the service-account email in
             the sidebar, confirm the folder URL, and click <strong>Index BOS Folder</strong>.<br/><br/>
             After indexing finishes, you can ask questions about BOS assets, decks, Sheets, Docs,
-            scanned PDFs, and image-based files when OCR is enabled.
+            PDFs with readable text, and other supported text-based files.
             <ul class="bos-simple-list">
                 <li>Share the folder with the service-account email</li>
                 <li>Click <strong>Index BOS Folder</strong></li>
@@ -927,9 +917,6 @@ if index_clicked:
             with st.spinner("Indexing the BOS asset folder..."):
                 folder_payload = load_folder_index(
                     folder_url=folder_url.strip(),
-                    enable_ocr=enable_ocr,
-                    ocr_model=ocr_model_name.strip() or DEFAULT_OCR_MODEL,
-                    _openrouter_api_key=OPENROUTER_API_KEY,
                 )
                 st.session_state.folder_bundle = build_runtime_bundle(folder_payload)
                 st.session_state.messages = [
@@ -957,9 +944,7 @@ if bundle:
         st.write(f"Folder: {bundle['folder_name']}")
         st.write(f"Indexed at: {bundle['indexed_at']}")
         st.write(f"Folder link: {bundle['folder_link']}")
-        st.write(f"OCR enabled: {'Yes' if bundle.get('ocr_enabled') else 'No'}")
-        if bundle.get("ocr_enabled"):
-            st.write(f"OCR model: {bundle.get('ocr_model')}")
+        st.write("OCR enabled: No")
         if bundle["skipped"]:
             st.write("Skipped files")
             for item in bundle["skipped"][:25]:

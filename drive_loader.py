@@ -15,7 +15,6 @@ from docx import Document as DocxDocument
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
-from ocr import extract_text_from_image, extract_text_from_pdf
 from pypdf import PdfReader
 from pptx import Presentation
 
@@ -121,17 +120,11 @@ def build_clients() -> tuple[Any, Any]:
 def index_drive_folder(folder_url: str) -> dict[str, Any]:
     return index_drive_folder_with_options(
         folder_url=folder_url,
-        enable_ocr=False,
-        ocr_model="",
-        openrouter_api_key="",
     )
 
 
 def index_drive_folder_with_options(
     folder_url: str,
-    enable_ocr: bool,
-    ocr_model: str,
-    openrouter_api_key: str,
 ) -> dict[str, Any]:
     folder_id = extract_folder_id(folder_url)
     credentials = load_credentials()
@@ -167,9 +160,6 @@ def index_drive_folder_with_options(
             path=item["path"],
             web_view_link=item.get("webViewLink", ""),
             modified_time=item.get("modifiedTime", ""),
-            enable_ocr=enable_ocr,
-            ocr_model=ocr_model,
-            openrouter_api_key=openrouter_api_key,
         )
 
         if extracted.get("document"):
@@ -185,8 +175,6 @@ def index_drive_folder_with_options(
         "service_account_email": credentials.service_account_email,
         "documents": documents,
         "skipped": skipped,
-        "ocr_enabled": enable_ocr,
-        "ocr_model": ocr_model,
     }
 
 
@@ -201,9 +189,6 @@ def _extract_item_for_index(
     path: str,
     web_view_link: str,
     modified_time: str,
-    enable_ocr: bool,
-    ocr_model: str,
-    openrouter_api_key: str,
 ) -> dict[str, Any]:
     item = {
         "effectiveId": file_id,
@@ -219,9 +204,6 @@ def _extract_item_for_index(
             drive_service=_drive_service,
             sheets_service=_sheets_service,
             item=item,
-            enable_ocr=enable_ocr,
-            ocr_model=ocr_model,
-            openrouter_api_key=openrouter_api_key,
         )
         normalized = _normalize_extracted_text(text)
         if not normalized:
@@ -349,9 +331,6 @@ def _extract_item_text(
     drive_service: Any,
     sheets_service: Any,
     item: dict[str, Any],
-    enable_ocr: bool,
-    ocr_model: str,
-    openrouter_api_key: str,
 ) -> tuple[str, str]:
     file_id = item["effectiveId"]
     mime_type = item["effectiveMimeType"]
@@ -374,13 +353,9 @@ def _extract_item_text(
     if mime_type == "application/pdf" or lowered_name.endswith(".pdf"):
         file_bytes = _download_file_bytes(drive_service, file_id)
         rendered_pdf_text = _render_pdf(file_bytes)
-        if not _needs_pdf_ocr(rendered_pdf_text):
+        if rendered_pdf_text.strip():
             return rendered_pdf_text, "pdf"
-        if not enable_ocr:
-            raise ValueError("Scanned PDF detected. Enable OCR to index scanned PDFs.")
-        if not openrouter_api_key:
-            raise ValueError("Scanned PDF OCR requires OPENROUTER_API_KEY.")
-        return extract_text_from_pdf(file_bytes, openrouter_api_key, ocr_model, name), "pdf-ocr"
+        raise ValueError("Scanned or image-only PDF skipped because OCR is disabled.")
 
     if (
         mime_type
@@ -412,12 +387,7 @@ def _extract_item_text(
         return _render_text_like(file_bytes, lowered_name), "text-file"
 
     if _is_image_file(mime_type, lowered_name):
-        if not enable_ocr:
-            raise ValueError("Image OCR is disabled. Enable OCR to index image files.")
-        if not openrouter_api_key:
-            raise ValueError("Image OCR requires OPENROUTER_API_KEY.")
-        file_bytes = _download_file_bytes(drive_service, file_id)
-        return extract_text_from_image(file_bytes, openrouter_api_key, ocr_model, mime_type, name), "image-ocr"
+        raise ValueError("Image files are skipped because OCR is disabled.")
 
     raise ValueError(f"Unsupported file type: {mime_type}")
 
