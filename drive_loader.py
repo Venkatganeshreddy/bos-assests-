@@ -159,9 +159,11 @@ def index_drive_folder_with_options(
     total_items = len(items)
     _report_progress(progress_callback, 0, total_items, "Scanning BOS assets...")
 
-    # Split items into size-skipped and processable
-    to_process: list[tuple[int, dict]] = []
-    for index, item in enumerate(items, start=1):
+    # Split items by type: sheets need sequential processing (strict quota),
+    # everything else can be parallelized
+    sheets_queue: list[dict] = []
+    parallel_queue: list[dict] = []
+    for _index, item in enumerate(items, start=1):
         size_bytes = _coerce_size_bytes(item.get("size"))
         if size_bytes is not None and size_bytes > MAX_INDEX_FILE_BYTES:
             skipped.append(
@@ -171,13 +173,20 @@ def index_drive_folder_with_options(
                     "link": _item_open_link(item),
                 }
             )
+        elif item["effectiveMimeType"] == GOOGLE_SHEET_MIME:
+            sheets_queue.append(item)
         else:
-            to_process.append((index, item))
+            parallel_queue.append(item)
 
-    # Process files in parallel — each thread gets its own API clients
-    # to avoid httplib2 thread-safety issues
     completed = 0
 
+    def _collect_result(extracted: dict, item: dict) -> None:
+        if extracted.get("document"):
+            documents.append(DriveDocument(**extracted["document"]))
+        else:
+            skipped.append(extracted["skipped"])
+
+    # Phase 1: Process non-sheet files in parallel
     def _process_item(item: dict) -> dict:
         creds = load_credentials()
         ds = build("drive", "v3", credentials=creds, cache_discovery=False)
@@ -196,17 +205,13 @@ def index_drive_folder_with_options(
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         future_to_item = {
             pool.submit(_process_item, item): item
-            for _, item in to_process
+            for item in parallel_queue
         }
         for future in as_completed(future_to_item):
             completed += 1
             item = future_to_item[future]
             try:
-                extracted = future.result()
-                if extracted.get("document"):
-                    documents.append(DriveDocument(**extracted["document"]))
-                else:
-                    skipped.append(extracted["skipped"])
+                _collect_result(future.result(), item)
             except Exception as exc:
                 skipped.append(
                     {
@@ -216,6 +221,33 @@ def index_drive_folder_with_options(
                     }
                 )
             _report_progress(progress_callback, completed, total_items, item["path"])
+
+    # Phase 2: Process Google Sheets sequentially with a small delay
+    # to stay within the Sheets API per-minute quota
+    for item in sheets_queue:
+        completed += 1
+        try:
+            extracted = _extract_item_for_index(
+                _drive_service=drive_service,
+                _sheets_service=sheets_service,
+                file_id=item["effectiveId"],
+                mime_type=item["effectiveMimeType"],
+                name=item["name"],
+                path=item["path"],
+                web_view_link=item.get("webViewLink", ""),
+                modified_time=item.get("modifiedTime", ""),
+            )
+            _collect_result(extracted, item)
+        except Exception as exc:
+            skipped.append(
+                {
+                    "name": item["path"],
+                    "reason": str(exc)[:220],
+                    "link": _item_open_link(item),
+                }
+            )
+        _report_progress(progress_callback, completed, total_items, item["path"])
+        time.sleep(1.2)  # ~50 requests/min to stay under quota
 
     return {
         "folder_id": folder_id,
@@ -242,7 +274,6 @@ def _coerce_size_bytes(raw_size: Any) -> int | None:
         return None
 
 
-@st.cache_data(ttl=43200, show_spinner=False)
 def _extract_item_for_index(
     _drive_service: Any,
     _sheets_service: Any,
