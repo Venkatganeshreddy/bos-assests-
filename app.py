@@ -637,35 +637,26 @@ def build_runtime_bundle(folder_payload: dict) -> dict:
     }
 
 
-def run_index(folder_url: str) -> None:
-    with st.spinner("Indexing the BOS asset folder..."):
-        progress_text = st.empty()
-        progress_bar = st.progress(0)
+@st.cache_resource(ttl=3600, show_spinner=False)
+def _cached_index(folder_url: str) -> dict:
+    """Build and cache the folder index so it persists across sessions."""
+    folder_payload = index_drive_folder_with_options(folder_url=folder_url)
+    return build_runtime_bundle(folder_payload)
 
-        def _update_progress(current: int, total: int, label: str = "") -> None:
-            ratio = 0 if total <= 0 else current / total
-            progress_bar.progress(ratio)
-            if total <= 0:
-                progress_text.caption("Scanning BOS assets...")
-            else:
-                progress_text.caption(f"Indexed {current}/{total}: {label}")
 
-        folder_payload = load_folder_index(
-            folder_url=folder_url.strip(),
-            progress_callback=_update_progress,
-        )
-        progress_bar.empty()
-        progress_text.empty()
-        st.session_state.folder_bundle = build_runtime_bundle(folder_payload)
-        st.session_state.messages = [
-            {
-                "role": "assistant",
-                "content": (
-                    f"I indexed **{folder_payload['folder_name']}** and I'm ready to answer "
-                    "questions with file-backed citations."
-                ),
-            }
-        ]
+@st.cache_resource(show_spinner=False)
+def _index_flag() -> dict:
+    """Mutable container shared across sessions to track if indexing happened."""
+    return {"done": False}
+
+
+def _has_been_indexed() -> bool:
+    return _index_flag()["done"]
+
+
+def _mark_indexed() -> None:
+    _index_flag()["done"] = True
+
 
 
 def render_hero(bundle: dict | None) -> None:
@@ -949,30 +940,17 @@ if index_clicked:
         st.error("Set DRIVE_FOLDER_URL in Streamlit secrets first.")
     else:
         try:
-            with st.spinner("Indexing the BOS asset folder..."):
-                progress_text = st.empty()
-                progress_bar = st.progress(0)
-
-                def _update_progress(current: int, total: int, label: str = "") -> None:
-                    ratio = 0 if total <= 0 else current / total
-                    progress_bar.progress(ratio)
-                    if total <= 0:
-                        progress_text.caption("Scanning BOS assets...")
-                    else:
-                        progress_text.caption(f"Indexed {current}/{total}: {label}")
-
-                folder_payload = load_folder_index(
-                    folder_url=folder_url.strip(),
-                    progress_callback=_update_progress,
-                )
-                progress_bar.empty()
-                progress_text.empty()
-                st.session_state.folder_bundle = build_runtime_bundle(folder_payload)
+            _cached_index.clear()
+            _index_flag()["done"] = False
+            with st.spinner("Indexing the BOS asset folder — this may take a moment..."):
+                st.session_state.folder_bundle = _cached_index(folder_url.strip())
+                _mark_indexed()
+                folder_name = st.session_state.folder_bundle.get("folder_name", "BOS folder")
                 st.session_state.messages = [
                     {
                         "role": "assistant",
                         "content": (
-                            f"I indexed **{folder_payload['folder_name']}** and I’m ready to answer "
+                            f"I indexed **{folder_name}** and I’m ready to answer "
                             "questions with file-backed citations."
                         ),
                     }
@@ -980,11 +958,16 @@ if index_clicked:
         except Exception as exc:
             st.error(str(exc))
 
-if not st.session_state.folder_bundle and folder_url.strip() and not credentials_error:
-    try:
-        run_index(folder_url)
-    except Exception as exc:
-        st.error(str(exc))
+# On page load, check if a previous session already built the index.
+# _cached_index uses @st.cache_resource so cache hits are instant.
+# We track whether indexing has ever completed via a cache_resource flag
+# to avoid triggering a full index on cold starts.
+if not st.session_state.folder_bundle and folder_url and folder_url.strip() and not credentials_error:
+    if _has_been_indexed():
+        try:
+            st.session_state.folder_bundle = _cached_index(folder_url.strip())
+        except Exception:
+            pass
 
 bundle = st.session_state.folder_bundle
 
