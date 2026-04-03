@@ -896,7 +896,7 @@ def render_sidebar_skipped(bundle: dict | None) -> None:
     if not bundle or not bundle.get("skipped"):
         return
 
-    with st.expander(f"Unable to index ({len(bundle['skipped'])})", expanded=False):
+    with st.expander(f"Unable to index ({len(bundle['skipped'])})", expanded=True):
         for item in bundle["skipped"]:
             link = item.get("link", "")
             if link:
@@ -929,7 +929,7 @@ except Exception as exc:
     credentials_error = str(exc)
 
 with st.sidebar:
-    st.markdown('<div class="bos-sidebar-title">BOS Setup</div>', unsafe_allow_html=True)
+    st.markdown('<div class="bos-sidebar-title">BOS Chatbot</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="bos-sidebar-subtitle">This app is locked to the BOS assets folder. Click index, then start asking questions.</div>',
         unsafe_allow_html=True,
