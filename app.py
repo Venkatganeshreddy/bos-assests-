@@ -71,10 +71,16 @@ st.markdown(
         h1, h2, h3 { font-family: 'Fraunces', serif !important; letter-spacing: -0.02em; }
 
         .block-container {
-            padding-top: 1.4rem;
+            padding-top: 1.2rem;
             padding-bottom: 2rem;
             max-width: 1380px;
         }
+
+        /* Tighten Streamlit's default element gaps */
+        .block-container > div > div > div > div {
+            margin-bottom: 0;
+        }
+        .element-container { margin-bottom: 0.4rem !important; }
 
         /* ── Sidebar ── */
         .bos-sidebar-title {
@@ -170,7 +176,7 @@ st.markdown(
             border-radius: 28px;
             padding: 1.6rem 1.7rem;
             box-shadow: 0 22px 60px rgba(36,49,42,0.08);
-            margin-bottom: 1rem;
+            margin-bottom: 0.8rem;
             animation: bos-fade-up 0.5s ease-out both;
             position: relative;
             overflow: hidden;
@@ -275,6 +281,12 @@ st.markdown(
         }
 
         /* ── Quickstart ── */
+        .bos-quickstart-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.9rem;
+            margin-bottom: 0.8rem;
+        }
         .bos-quickstep {
             border-radius: 22px;
             background: rgba(255,253,249,0.96);
@@ -317,6 +329,12 @@ st.markdown(
         }
 
         /* ── Metric cards ── */
+        .bos-metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.9rem;
+            margin-bottom: 0.8rem;
+        }
         .bos-card {
             border-radius: 22px;
             background: rgba(255,253,249,0.96);
@@ -356,16 +374,6 @@ st.markdown(
             line-height: 1.45;
         }
 
-        .bos-panel {
-            border-radius: 24px;
-            background: rgba(255,253,249,0.96);
-            border: 1px solid rgba(19,50,39,0.08);
-            padding: 1.15rem 1.2rem;
-            box-shadow: 0 10px 28px rgba(33,42,38,0.05);
-            height: 100%;
-        }
-
-
         /* ── Empty state ── */
         .bos-empty {
             border-radius: 24px;
@@ -376,7 +384,7 @@ st.markdown(
             line-height: 1.7;
             text-align: center;
             max-width: 540px;
-            margin: 1.5rem auto;
+            margin: 0.8rem auto 0.8rem;
             animation: bos-fade-up 0.5s ease-out both;
         }
         .bos-empty strong { color: #22392f; }
@@ -421,7 +429,9 @@ st.markdown(
             justify-content: space-between;
             align-items: end;
             gap: 1rem;
-            margin: 1.15rem 0 0.85rem;
+            margin: 0.6rem 0 0.75rem;
+            padding-top: 0.8rem;
+            border-top: 1px solid rgba(19,50,39,0.06);
             animation: bos-fade-up 0.4s ease-out both;
         }
         .bos-chat-title {
@@ -511,6 +521,8 @@ st.markdown(
             border-right: 1px solid rgba(19,50,39,0.08);
         }
         [data-testid="stSidebar"] .block-container { padding-top: 1rem; }
+        [data-testid="stSidebar"] .element-container { margin-bottom: 0.25rem !important; }
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div { gap: 0.5rem; }
         [data-testid="stSidebar"] h2,
         [data-testid="stSidebar"] p,
         [data-testid="stSidebar"] label,
@@ -620,7 +632,11 @@ st.markdown(
             padding: 0.75rem 0.95rem;
             box-shadow: 0 10px 28px rgba(33,42,38,0.05);
             animation: bos-fade-up 0.3s ease-out both;
-            margin-bottom: 0.6rem;
+            margin-bottom: 0.5rem !important;
+        }
+        /* Tighten Streamlit's default gap between chat messages */
+        div[data-testid="stChatMessageContainer"] > div {
+            gap: 0.5rem !important;
         }
         div[data-testid="stChatMessage"] p,
         div[data-testid="stChatMessage"] li,
@@ -641,10 +657,14 @@ st.markdown(
 
         /* ── Responsive ── */
         @media (max-width: 1100px) {
-            .bos-hero, .bos-metrics { grid-template-columns: 1fr 1fr; }
+            .bos-hero { grid-template-columns: 1fr; }
+            .bos-metrics-grid { grid-template-columns: repeat(2, 1fr); }
+            .bos-quickstart-grid { grid-template-columns: repeat(3, 1fr); }
         }
         @media (max-width: 780px) {
-            .bos-hero, .bos-metrics, .bos-quickstart { grid-template-columns: 1fr; }
+            .bos-hero,
+            .bos-metrics-grid,
+            .bos-quickstart-grid { grid-template-columns: 1fr; }
         }
     </style>
     """,
@@ -756,19 +776,15 @@ def render_metrics(bundle: dict) -> None:
         ("Top formats", str(len(kind_counts)), top_formats),
     ]
 
-    columns = st.columns(len(metrics), gap="medium")
-    for column, (label, value, meta) in zip(columns, metrics):
-        with column:
-            st.markdown(
-                (
-                    '<div class="bos-card">'
-                    f'<div class="bos-label">{escape(label)}</div>'
-                    f'<div class="bos-value">{escape(value)}</div>'
-                    f'<div class="bos-meta">{escape(meta)}</div>'
-                    "</div>"
-                ),
-                unsafe_allow_html=True,
-            )
+    cards = "".join(
+        f'<div class="bos-card">'
+        f'<div class="bos-label">{escape(label)}</div>'
+        f'<div class="bos-value">{escape(value)}</div>'
+        f'<div class="bos-meta">{escape(meta)}</div>'
+        f"</div>"
+        for label, value, meta in metrics
+    )
+    st.markdown(f'<div class="bos-metrics-grid">{cards}</div>', unsafe_allow_html=True)
 
 
 def render_quickstart(bundle: dict | None) -> None:
@@ -785,19 +801,15 @@ def render_quickstart(bundle: dict | None) -> None:
             ("3", "Start chatting", "Ask about assets once indexing finishes."),
         ]
 
-    columns = st.columns(len(steps), gap="medium")
-    for column, (num, value, meta) in zip(columns, steps):
-        with column:
-            st.markdown(
-                (
-                    '<div class="bos-quickstep">'
-                    f'<div class="bos-quickstep-num">{escape(num)}</div>'
-                    f'<div class="bos-quickstep-title">{escape(value)}</div>'
-                    f'<div class="bos-quickstep-copy">{escape(meta)}</div>'
-                    "</div>"
-                ),
-                unsafe_allow_html=True,
-            )
+    cards = "".join(
+        f'<div class="bos-quickstep">'
+        f'<div class="bos-quickstep-num">{escape(num)}</div>'
+        f'<div class="bos-quickstep-title">{escape(value)}</div>'
+        f'<div class="bos-quickstep-copy">{escape(meta)}</div>'
+        f"</div>"
+        for num, value, meta in steps
+    )
+    st.markdown(f'<div class="bos-quickstart-grid">{cards}</div>', unsafe_allow_html=True)
 
 
 
