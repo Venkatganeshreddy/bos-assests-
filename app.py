@@ -201,7 +201,7 @@ st.markdown(
             display: grid;
             grid-template-columns: minmax(0, 1.8fr) minmax(220px, 0.62fr);
             gap: 1.2rem;
-            align-items: start;
+            align-items: center;
         }
         .bos-title {
             font-size: clamp(2.1rem, 4vw, 3.6rem);
@@ -248,11 +248,11 @@ st.markdown(
             background: linear-gradient(180deg, #13372d 0%, #1c493b 100%);
             color: #f4efe7;
             border-radius: 20px;
-            padding: 0.95rem 1rem;
-            min-height: 0;
+            padding: 1.1rem 1.15rem;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
+            justify-content: center;
+            gap: 0.5rem;
             box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 32px rgba(19,55,45,0.18);
             transition: transform 0.25s ease;
         }
@@ -274,7 +274,7 @@ st.markdown(
             gap: 0.45rem;
         }
         .bos-status-meta {
-            margin-top: 0.65rem;
+            margin-top: 0;
             color: rgba(243,235,222,0.84);
             font-size: 0.84rem;
             line-height: 1.45;
