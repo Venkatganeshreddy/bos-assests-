@@ -997,19 +997,43 @@ if index_clicked:
         try:
             _cached_index.clear()
             _index_flag()["done"] = False
-            with st.spinner("Indexing the BOS asset folder — this may take a moment..."):
-                st.session_state.folder_bundle = _cached_index(folder_url.strip())
-                _mark_indexed()
-                folder_name = st.session_state.folder_bundle.get("folder_name", "BOS folder")
-                st.session_state.messages = [
-                    {
-                        "role": "assistant",
-                        "content": (
-                            f"I indexed **{folder_name}** and I’m ready to answer "
-                            "questions with file-backed citations."
-                        ),
-                    }
-                ]
+
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
+
+            def _update_progress(current: int, total: int, label: str = "") -> None:
+                ratio = 0 if total <= 0 else min(current / total, 1.0)
+                progress_bar.progress(ratio)
+                if total <= 0:
+                    progress_text.caption("Scanning BOS assets...")
+                else:
+                    short_label = label.rsplit("/", 1)[-1] if label else ""
+                    progress_text.caption(f"Indexing {current}/{total}: {short_label}")
+
+            progress_text.caption("Scanning BOS assets...")
+            folder_payload = load_folder_index(
+                folder_url=folder_url.strip(),
+                progress_callback=_update_progress,
+            )
+            progress_bar.progress(1.0)
+            progress_text.caption("Building search index...")
+            bundle = build_runtime_bundle(folder_payload)
+
+            progress_bar.empty()
+            progress_text.empty()
+
+            st.session_state.folder_bundle = bundle
+            _mark_indexed()
+            folder_name = bundle.get("folder_name", "BOS folder")
+            st.session_state.messages = [
+                {
+                    "role": "assistant",
+                    "content": (
+                        f"I indexed **{folder_name}** and I’m ready to answer "
+                        "questions with file-backed citations."
+                    ),
+                }
+            ]
         except Exception as exc:
             st.error(str(exc))
 
