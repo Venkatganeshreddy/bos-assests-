@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
@@ -59,7 +60,8 @@ IMAGE_FILE_SUFFIXES = {
 SHEET_META_FIELDS = "properties.title,sheets.properties.title"
 MAX_SHEET_ROWS = 401
 MAX_INDEX_FILE_BYTES = 8 * 1024 * 1024
-MAX_WORKERS = 8
+MAX_WORKERS = 4
+MAX_RETRIES = 3
 
 
 @dataclass
@@ -454,31 +456,53 @@ def _extract_item_text(
     raise ValueError(f"Unsupported file type: {mime_type}")
 
 
+def _retry_on_quota(func, *args, **kwargs):
+    """Retry a Google API call up to MAX_RETRIES times on 429 / quota errors."""
+    last_exc = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            return func(*args, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            err_str = str(exc)
+            if "429" in err_str or "Quota exceeded" in err_str or "Rate Limit" in err_str:
+                time.sleep(2 ** attempt + 1)
+            else:
+                raise
+    raise last_exc
+
+
 def _export_google_workspace_text(drive_service: Any, file_id: str) -> str:
-    request = drive_service.files().export_media(fileId=file_id, mimeType="text/plain")
-    handle = io.BytesIO()
-    downloader = MediaIoBaseDownload(handle, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    return handle.getvalue().decode("utf-8", errors="ignore")
+    def _do_export():
+        request = drive_service.files().export_media(fileId=file_id, mimeType="text/plain")
+        handle = io.BytesIO()
+        downloader = MediaIoBaseDownload(handle, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return handle.getvalue().decode("utf-8", errors="ignore")
+    return _retry_on_quota(_do_export)
 
 
 def _download_file_bytes(drive_service: Any, file_id: str) -> bytes:
-    request = drive_service.files().get_media(fileId=file_id)
-    handle = io.BytesIO()
-    downloader = MediaIoBaseDownload(handle, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    return handle.getvalue()
+    def _do_download():
+        request = drive_service.files().get_media(fileId=file_id)
+        handle = io.BytesIO()
+        downloader = MediaIoBaseDownload(handle, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return handle.getvalue()
+    return _retry_on_quota(_do_download)
 
 
 def _render_google_sheet(sheets_service: Any, spreadsheet_id: str) -> str:
-    spreadsheet = sheets_service.spreadsheets().get(
-        spreadsheetId=spreadsheet_id,
-        fields=SHEET_META_FIELDS,
-    ).execute()
+    spreadsheet = _retry_on_quota(
+        sheets_service.spreadsheets().get(
+            spreadsheetId=spreadsheet_id,
+            fields=SHEET_META_FIELDS,
+        ).execute
+    )
 
     title = spreadsheet.get("properties", {}).get("title", "Untitled spreadsheet")
     parts = [f"Spreadsheet: {title}"]
@@ -490,12 +514,14 @@ def _render_google_sheet(sheets_service: Any, spreadsheet_id: str) -> str:
     if not sheet_names:
         return "\n".join(parts)
 
-    values_payload = sheets_service.spreadsheets().values().batchGet(
-        spreadsheetId=spreadsheet_id,
-        ranges=[_sheet_preview_range(sheet_name) for sheet_name in sheet_names],
-        majorDimension="ROWS",
-        valueRenderOption="FORMATTED_VALUE",
-    ).execute()
+    values_payload = _retry_on_quota(
+        sheets_service.spreadsheets().values().batchGet(
+            spreadsheetId=spreadsheet_id,
+            ranges=[_sheet_preview_range(sheet_name) for sheet_name in sheet_names],
+            majorDimension="ROWS",
+            valueRenderOption="FORMATTED_VALUE",
+        ).execute
+    )
     value_ranges = values_payload.get("valueRanges", [])
 
     for index, tab_name in enumerate(sheet_names):
