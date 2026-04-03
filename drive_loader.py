@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
@@ -58,6 +59,7 @@ IMAGE_FILE_SUFFIXES = {
 SHEET_META_FIELDS = "properties.title,sheets.properties.title"
 MAX_SHEET_ROWS = 401
 MAX_INDEX_FILE_BYTES = 8 * 1024 * 1024
+MAX_WORKERS = 8
 
 
 @dataclass
@@ -155,6 +157,8 @@ def index_drive_folder_with_options(
     total_items = len(items)
     _report_progress(progress_callback, 0, total_items, "Scanning BOS assets...")
 
+    # Split items into size-skipped and processable
+    to_process: list[tuple[int, dict]] = []
     for index, item in enumerate(items, start=1):
         size_bytes = _coerce_size_bytes(item.get("size"))
         if size_bytes is not None and size_bytes > MAX_INDEX_FILE_BYTES:
@@ -165,12 +169,20 @@ def index_drive_folder_with_options(
                     "link": _item_open_link(item),
                 }
             )
-            _report_progress(progress_callback, index, total_items, item["path"])
-            continue
+        else:
+            to_process.append((index, item))
 
-        extracted = _extract_item_for_index(
-            _drive_service=drive_service,
-            _sheets_service=sheets_service,
+    # Process files in parallel — each thread gets its own API clients
+    # to avoid httplib2 thread-safety issues
+    completed = 0
+
+    def _process_item(item: dict) -> dict:
+        creds = load_credentials()
+        ds = build("drive", "v3", credentials=creds, cache_discovery=False)
+        ss = build("sheets", "v4", credentials=creds, cache_discovery=False)
+        return _extract_item_for_index(
+            _drive_service=ds,
+            _sheets_service=ss,
             file_id=item["effectiveId"],
             mime_type=item["effectiveMimeType"],
             name=item["name"],
@@ -179,12 +191,29 @@ def index_drive_folder_with_options(
             modified_time=item.get("modifiedTime", ""),
         )
 
-        if extracted.get("document"):
-            documents.append(DriveDocument(**extracted["document"]))
-        else:
-            skipped.append(extracted["skipped"])
-
-        _report_progress(progress_callback, index, total_items, item["path"])
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        future_to_item = {
+            pool.submit(_process_item, item): item
+            for _, item in to_process
+        }
+        for future in as_completed(future_to_item):
+            completed += 1
+            item = future_to_item[future]
+            try:
+                extracted = future.result()
+                if extracted.get("document"):
+                    documents.append(DriveDocument(**extracted["document"]))
+                else:
+                    skipped.append(extracted["skipped"])
+            except Exception as exc:
+                skipped.append(
+                    {
+                        "name": item["path"],
+                        "reason": str(exc)[:220],
+                        "link": _item_open_link(item),
+                    }
+                )
+            _report_progress(progress_callback, completed, total_items, item["path"])
 
     return {
         "folder_id": folder_id,
