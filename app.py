@@ -365,50 +365,6 @@ st.markdown(
             height: 100%;
         }
 
-        /* ── Summary cards ── */
-        .bos-summary {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 0.9rem;
-            margin-bottom: 1rem;
-        }
-        .bos-summary-card {
-            border-radius: 22px;
-            background: rgba(255,253,249,0.96);
-            border: 1px solid rgba(19,50,39,0.08);
-            padding: 1rem 1.05rem;
-            box-shadow: 0 10px 28px rgba(33,42,38,0.05);
-            min-height: 112px;
-            transition: transform 0.25s ease, box-shadow 0.25s ease;
-        }
-        .bos-summary-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 14px 36px rgba(33,42,38,0.09);
-        }
-        .bos-summary-label {
-            color: #7a654b;
-            font-size: 0.72rem;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            font-weight: 800;
-        }
-        .bos-summary-value {
-            margin-top: 0.5rem;
-            color: #1f382f;
-            font-size: 1rem;
-            line-height: 1.5;
-            word-break: break-word;
-        }
-        .bos-summary-value a {
-            color: #1d5a48 !important;
-            font-weight: 700;
-            text-decoration: none;
-            transition: color 0.2s;
-        }
-        .bos-summary-value a:hover {
-            color: #2a7a60 !important;
-            text-decoration: underline;
-        }
 
         /* ── Empty state ── */
         .bos-empty {
@@ -685,10 +641,10 @@ st.markdown(
 
         /* ── Responsive ── */
         @media (max-width: 1100px) {
-            .bos-hero, .bos-metrics, .bos-summary { grid-template-columns: 1fr 1fr; }
+            .bos-hero, .bos-metrics { grid-template-columns: 1fr 1fr; }
         }
         @media (max-width: 780px) {
-            .bos-hero, .bos-metrics, .bos-summary, .bos-quickstart { grid-template-columns: 1fr; }
+            .bos-hero, .bos-metrics, .bos-quickstart { grid-template-columns: 1fr; }
         }
     </style>
     """,
@@ -844,27 +800,6 @@ def render_quickstart(bundle: dict | None) -> None:
             )
 
 
-def render_overview(bundle: dict) -> None:
-    summary_items = [
-        ("Folder", escape(bundle["folder_name"])),
-        ("Indexed At", escape(bundle["indexed_at"])),
-        (
-            "Drive Link",
-            f'<a href="{escape(bundle["folder_link"])}" target="_blank">Open source folder</a>',
-        ),
-        ("OCR Mode", "Disabled"),
-    ]
-
-    cards = "".join(
-        f"""
-        <div class="bos-summary-card">
-            <div class="bos-summary-label">{label}</div>
-            <div class="bos-summary-value">{value}</div>
-        </div>
-        """
-        for label, value in summary_items
-    )
-    st.markdown(f'<div class="bos-summary">{cards}</div>', unsafe_allow_html=True)
 
 
 def render_empty_state() -> None:
@@ -1084,7 +1019,6 @@ render_quickstart(bundle)
 
 if bundle:
     render_metrics(bundle)
-    render_overview(bundle)
 
     with st.expander("Index details", expanded=False):
         st.write(f"Folder: {bundle['folder_name']}")
