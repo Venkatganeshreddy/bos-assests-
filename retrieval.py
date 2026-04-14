@@ -1,10 +1,8 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
-
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 from drive_loader import DriveDocument
 
@@ -106,14 +104,38 @@ def build_index(chunks: list[Chunk]) -> tuple[TfidfVectorizer | None, object | N
         for chunk in chunks
     ]
 
-    vectorizer = TfidfVectorizer(
-        stop_words="english",
-        ngram_range=(1, 2),
-        max_features=25000,
-        sublinear_tf=True,
-        token_pattern=r"(?u)\b\w+\b",
-    )
-    matrix = vectorizer.fit_transform(corpus)
+    try:
+        from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore
+        from sklearn.metrics.pairwise import cosine_similarity  # type: ignore
+    except Exception:
+        TfidfVectorizer = None
+        cosine_similarity = None
+
+    if TfidfVectorizer is not None and cosine_similarity is not None:
+        vectorizer = TfidfVectorizer(
+            stop_words="english",
+            ngram_range=(1, 2),
+            max_features=25000,
+            sublinear_tf=True,
+            token_pattern=r"(?u)\b\w+\b",
+        )
+        matrix = vectorizer.fit_transform(corpus)
+        return vectorizer, matrix
+
+    # Fallback path for environments where sklearn cannot be imported.
+    doc_terms: list[list[str]] = [_extract_search_terms(_normalize_search_text(text)) for text in corpus]
+    doc_freq: dict[str, int] = {}
+    for terms in doc_terms:
+        for term in set(terms):
+            doc_freq[term] = doc_freq.get(term, 0) + 1
+
+    total_docs = max(len(doc_terms), 1)
+    idf = {term: math.log((1 + total_docs) / (1 + freq)) + 1 for term, freq in doc_freq.items()}
+    matrix = [_build_weighted_vector(terms, idf) for terms in doc_terms]
+    vectorizer = {
+        "_fallback": True,
+        "idf": idf,
+    }
     return vectorizer, matrix
 
 
@@ -128,8 +150,18 @@ def retrieve(
         return []
 
     normalized_query = _normalize_search_text(query)
-    query_vector = vectorizer.transform([f"{query}\n{normalized_query}"])
-    base_scores = cosine_similarity(query_vector, matrix).flatten()
+    if isinstance(vectorizer, dict) and vectorizer.get("_fallback"):
+        idf = vectorizer.get("idf", {})
+        query_terms = _extract_search_terms(normalized_query)
+        query_vector = _build_weighted_vector(query_terms, idf)
+        base_scores = [
+            _cosine_similarity_sparse(query_vector, chunk_vector)
+            for chunk_vector in matrix
+        ]
+    else:
+        from sklearn.metrics.pairwise import cosine_similarity  # type: ignore
+        query_vector = vectorizer.transform([f"{query}\n{normalized_query}"])
+        base_scores = cosine_similarity(query_vector, matrix).flatten()
 
     query_lower = query.lower()
     normalized_query_lower = normalized_query.lower()
@@ -172,6 +204,36 @@ def retrieve(
         selected.append((chunk, score))
 
     return selected
+
+
+def _build_weighted_vector(terms: list[str], idf: dict[str, float]) -> dict[str, float]:
+    if not terms:
+        return {}
+
+    counts: dict[str, int] = {}
+    for term in terms:
+        counts[term] = counts.get(term, 0) + 1
+
+    total_terms = len(terms)
+    weighted: dict[str, float] = {}
+    for term, count in counts.items():
+        weight = (count / total_terms) * idf.get(term, 1.0)
+        weighted[term] = weight
+
+    norm = math.sqrt(sum(value * value for value in weighted.values()))
+    if norm <= 0:
+        return weighted
+
+    return {term: value / norm for term, value in weighted.items()}
+
+
+def _cosine_similarity_sparse(a: dict[str, float], b: dict[str, float]) -> float:
+    if not a or not b:
+        return 0.0
+    shared = set(a).intersection(b)
+    if not shared:
+        return 0.0
+    return float(sum(a[term] * b[term] for term in shared))
 
 
 def _normalize_search_text(text: str) -> str:
