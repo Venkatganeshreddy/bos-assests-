@@ -78,7 +78,7 @@ def build_chunks(
     return chunks
 
 
-def build_index(chunks: list[Chunk]) -> tuple[TfidfVectorizer | None, object | None]:
+def build_index(chunks: list[Chunk]) -> tuple[object | None, object | None]:
     if not chunks:
         return None, None
 
@@ -104,25 +104,8 @@ def build_index(chunks: list[Chunk]) -> tuple[TfidfVectorizer | None, object | N
         for chunk in chunks
     ]
 
-    try:
-        from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore
-        from sklearn.metrics.pairwise import cosine_similarity  # type: ignore
-    except Exception:
-        TfidfVectorizer = None
-        cosine_similarity = None
-
-    if TfidfVectorizer is not None and cosine_similarity is not None:
-        vectorizer = TfidfVectorizer(
-            stop_words="english",
-            ngram_range=(1, 2),
-            max_features=25000,
-            sublinear_tf=True,
-            token_pattern=r"(?u)\b\w+\b",
-        )
-        matrix = vectorizer.fit_transform(corpus)
-        return vectorizer, matrix
-
-    # Fallback path for environments where sklearn cannot be imported.
+    # Pure-Python retrieval index that avoids binary sklearn/runtime issues
+    # on constrained deployment environments.
     doc_terms: list[list[str]] = [_extract_search_terms(_normalize_search_text(text)) for text in corpus]
     doc_freq: dict[str, int] = {}
     for terms in doc_terms:
@@ -142,7 +125,7 @@ def build_index(chunks: list[Chunk]) -> tuple[TfidfVectorizer | None, object | N
 def retrieve(
     query: str,
     chunks: list[Chunk],
-    vectorizer: TfidfVectorizer | None,
+    vectorizer: object | None,
     matrix: object | None,
     limit: int = 8,
 ) -> list[tuple[Chunk, float]]:
@@ -150,18 +133,16 @@ def retrieve(
         return []
 
     normalized_query = _normalize_search_text(query)
-    if isinstance(vectorizer, dict) and vectorizer.get("_fallback"):
-        idf = vectorizer.get("idf", {})
-        query_terms = _extract_search_terms(normalized_query)
-        query_vector = _build_weighted_vector(query_terms, idf)
-        base_scores = [
-            _cosine_similarity_sparse(query_vector, chunk_vector)
-            for chunk_vector in matrix
-        ]
-    else:
-        from sklearn.metrics.pairwise import cosine_similarity  # type: ignore
-        query_vector = vectorizer.transform([f"{query}\n{normalized_query}"])
-        base_scores = cosine_similarity(query_vector, matrix).flatten()
+    if not (isinstance(vectorizer, dict) and vectorizer.get("_fallback") and isinstance(matrix, list)):
+        return []
+
+    idf = vectorizer.get("idf", {})
+    query_terms = _extract_search_terms(normalized_query)
+    query_vector = _build_weighted_vector(query_terms, idf)
+    base_scores = [
+        _cosine_similarity_sparse(query_vector, chunk_vector)
+        for chunk_vector in matrix
+    ]
 
     query_lower = query.lower()
     normalized_query_lower = normalized_query.lower()
