@@ -6,6 +6,10 @@ from dataclasses import dataclass
 
 from drive_loader import DriveDocument
 
+MAX_CHUNKS_PER_DOCUMENT = 60
+MAX_TOTAL_CHUNKS = 3500
+MAX_VECTOR_TERMS = 36
+
 
 @dataclass
 class Chunk:
@@ -22,12 +26,15 @@ class Chunk:
 
 def build_chunks(
     documents: list[DriveDocument],
-    chunk_chars: int = 1800,
-    overlap_chars: int = 260,
+    chunk_chars: int = 2400,
+    overlap_chars: int = 180,
 ) -> list[Chunk]:
     chunks: list[Chunk] = []
 
     for document in documents:
+        if len(chunks) >= MAX_TOTAL_CHUNKS:
+            break
+
         document_chunks: list[Chunk] = []
         text = document.text.strip()
         if not text:
@@ -65,13 +72,21 @@ def build_chunks(
                 )
                 chunk_index += 1
 
+            if len(document_chunks) >= MAX_CHUNKS_PER_DOCUMENT:
+                break
+
             if boundary >= len(text):
                 break
 
             start = max(boundary - overlap_chars, start + 1)
 
-        total = len(document_chunks)
-        for chunk in document_chunks:
+        remaining_capacity = max(MAX_TOTAL_CHUNKS - len(chunks), 0)
+        if remaining_capacity <= 0:
+            break
+        kept_chunks = document_chunks[:remaining_capacity]
+
+        total = len(kept_chunks)
+        for chunk in kept_chunks:
             chunk.chunk_total = total
             chunks.append(chunk)
 
@@ -82,31 +97,15 @@ def build_index(chunks: list[Chunk]) -> tuple[object | None, object | None]:
     if not chunks:
         return None, None
 
-    corpus = [
-        "\n".join(
-            [
-                chunk.file_name,
-                chunk.path,
-                chunk.source_kind,
-                chunk.text,
-                _normalize_search_text(
-                    "\n".join(
-                        [
-                            chunk.file_name,
-                            chunk.path,
-                            chunk.source_kind,
-                            chunk.text,
-                        ]
-                    )
-                ),
-            ]
-        )
-        for chunk in chunks
-    ]
-
     # Pure-Python retrieval index that avoids binary sklearn/runtime issues
     # on constrained deployment environments.
-    doc_terms: list[list[str]] = [_extract_search_terms(_normalize_search_text(text)) for text in corpus]
+    doc_terms: list[list[str]] = []
+    for chunk in chunks:
+        composite = _normalize_search_text(
+            "\n".join([chunk.file_name, chunk.path, chunk.source_kind, chunk.text])
+        )
+        doc_terms.append(_extract_search_terms(composite))
+
     doc_freq: dict[str, int] = {}
     for terms in doc_terms:
         for term in set(terms):
@@ -200,6 +199,10 @@ def _build_weighted_vector(terms: list[str], idf: dict[str, float]) -> dict[str,
     for term, count in counts.items():
         weight = (count / total_terms) * idf.get(term, 1.0)
         weighted[term] = weight
+
+    if len(weighted) > MAX_VECTOR_TERMS:
+        top_terms = sorted(weighted.items(), key=lambda item: item[1], reverse=True)[:MAX_VECTOR_TERMS]
+        weighted = dict(top_terms)
 
     norm = math.sqrt(sum(value * value for value in weighted.values()))
     if norm <= 0:

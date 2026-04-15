@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import gc
 from collections import Counter
 from datetime import datetime
 from html import escape
@@ -683,12 +684,19 @@ def load_folder_index(
 
 
 def build_runtime_bundle(folder_payload: dict) -> dict:
+    document_count = len(folder_payload["documents"])
+    source_kind_counts = dict(Counter(document.source_kind for document in folder_payload["documents"]))
     chunks = build_chunks(folder_payload["documents"])
     vectorizer, matrix = build_index(chunks)
+    # Release heavy raw text after index build to reduce runtime memory footprint.
+    folder_payload["documents"] = []
+    gc.collect()
 
     return {
         **folder_payload,
         "chunks": chunks,
+        "document_count": document_count,
+        "source_kind_counts": source_kind_counts,
         "vectorizer": vectorizer,
         "matrix": matrix,
         "indexed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -721,8 +729,9 @@ def render_hero(bundle: dict | None) -> None:
     ready = bundle is not None
     status_title = "Ready" if ready else "Not indexed"
     dot_class = "bos-dot--live" if ready else "bos-dot--idle"
+    indexed_files = bundle.get("document_count", len(bundle.get("documents", []))) if ready else 0
     status_meta = (
-        f"{len(bundle['documents']):,} files indexed &middot; {len(bundle['chunks']):,} chunks ready"
+        f"{indexed_files:,} files indexed &middot; {len(bundle['chunks']):,} chunks ready"
         if ready
         else "Click Index BOS Folder to activate search."
     )
@@ -765,12 +774,13 @@ def render_hero(bundle: dict | None) -> None:
 
 
 def render_metrics(bundle: dict) -> None:
-    kind_counts = Counter(document.source_kind for document in bundle["documents"])
+    kind_counts = Counter(bundle.get("source_kind_counts", {}))
+    indexed_files = bundle.get("document_count", len(bundle.get("documents", [])))
     top_formats = ", ".join(
         f"{name} {count}" for name, count in kind_counts.most_common(3)
     ) or "No formats indexed yet"
     metrics = [
-        ("Indexed files", f"{len(bundle['documents']):,}", "readable files available"),
+        ("Indexed files", f"{indexed_files:,}", "readable files available"),
         ("Search chunks", f"{len(bundle['chunks']):,}", "retrieval-ready content blocks"),
         ("Skipped files", f"{len(bundle['skipped']):,}", "unsupported, empty, or blocked"),
         ("Top formats", str(len(kind_counts)), top_formats),
@@ -878,10 +888,11 @@ def history_for_model(messages: list[dict], keep_last: int = 6) -> list[dict[str
 
 def render_sidebar_status(bundle: dict | None) -> None:
     if bundle:
+        indexed_files = bundle.get("document_count", len(bundle.get("documents", [])))
         title = "Library online"
         dot_class = "bos-dot--live"
         meta = (
-            f"{len(bundle['documents']):,} files indexed &middot; "
+            f"{indexed_files:,} files indexed &middot; "
             f"{len(bundle['chunks']):,} chunks ready"
         )
     else:
