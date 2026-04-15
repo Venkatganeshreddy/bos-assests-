@@ -48,7 +48,9 @@ def ask_openrouter(
                 "Return only source-grounded content. "
                 "Use inline tags like [Source 1]. "
                 "Do not use any Source index above "
-                f"{source_count}."
+                f"{source_count}. "
+                "If the user asks for tabular rows (for example curriculum, semester, or mapped-format data), "
+                "return a markdown table directly from cited rows and do not invent rows."
             ),
         }
     )

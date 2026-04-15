@@ -127,7 +127,7 @@ def retrieve(
     chunks: list[Chunk],
     vectorizer: object | None,
     matrix: object | None,
-    limit: int = 8,
+    limit: int = 20,
 ) -> list[tuple[Chunk, float]]:
     if not chunks or vectorizer is None or matrix is None:
         return []
@@ -255,7 +255,7 @@ def _looks_like_file_lookup(query: str) -> bool:
     return any(word in lowered for word in lookup_words)
 
 
-def build_context(retrieved: list[tuple[Chunk, float]], max_chars: int = 20000) -> str:
+def build_context(retrieved: list[tuple[Chunk, float]], max_chars: int = 45000) -> str:
     if not retrieved:
         return ""
 

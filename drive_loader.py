@@ -58,8 +58,8 @@ IMAGE_FILE_SUFFIXES = {
 }
 
 SHEET_META_FIELDS = "properties.title,sheets.properties.title"
-MAX_SHEET_ROWS = 401
-MAX_INDEX_FILE_BYTES = 8 * 1024 * 1024
+MAX_SHEET_ROWS = 2001
+MAX_INDEX_FILE_BYTES = 25 * 1024 * 1024
 MAX_WORKERS = 4
 MAX_RETRIES = 3
 
@@ -568,7 +568,7 @@ def _render_google_sheet(sheets_service: Any, spreadsheet_id: str) -> str:
             header_text = " | ".join(header or f"Column {idx + 1}" for idx, header in enumerate(headers))
             parts.append(f"Columns: {header_text}")
 
-        for row_number, row in enumerate(data_rows[:400], start=1):
+        for row_number, row in enumerate(data_rows[: MAX_SHEET_ROWS - 1], start=1):
             if headers:
                 pairs = []
                 for idx, cell in enumerate(row):
@@ -635,7 +635,9 @@ def _render_excel(file_bytes: bytes) -> str:
         sections.append(f"Sheet: {sheet_name}")
         sections.append("Columns: " + " | ".join(frame.columns))
 
-        for row_number, row in enumerate(frame.astype(str).to_dict(orient="records")[:400], start=1):
+        for row_number, row in enumerate(
+            frame.astype(str).to_dict(orient="records")[: MAX_SHEET_ROWS - 1], start=1
+        ):
             pairs = [f"{column}: {value}" for column, value in row.items() if value.strip()]
             if pairs:
                 sections.append(f"Row {row_number}: {' | '.join(pairs)}")
@@ -669,7 +671,7 @@ def _render_delimited_text(raw_text: str, delimiter: str) -> str:
 
     headers = rows[0]
     parts = ["Columns: " + " | ".join(headers)]
-    for row_number, row in enumerate(rows[1:401], start=1):
+    for row_number, row in enumerate(rows[1:MAX_SHEET_ROWS], start=1):
         pairs = []
         for idx, value in enumerate(row):
             if not value.strip():
