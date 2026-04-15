@@ -6,7 +6,6 @@ import json
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
@@ -58,9 +57,9 @@ IMAGE_FILE_SUFFIXES = {
 }
 
 SHEET_META_FIELDS = "properties.title,sheets.properties.title"
-MAX_SHEET_ROWS = 2001
-MAX_INDEX_FILE_BYTES = 25 * 1024 * 1024
-MAX_WORKERS = 4
+MAX_SHEET_ROWS = 1201
+MAX_INDEX_FILE_BYTES = 12 * 1024 * 1024
+MAX_TOTAL_CHARS_PER_FILE = 180_000
 MAX_RETRIES = 3
 
 
@@ -186,41 +185,31 @@ def index_drive_folder_with_options(
         else:
             skipped.append(extracted["skipped"])
 
-    # Phase 1: Process non-sheet files in parallel
-    def _process_item(item: dict) -> dict:
-        creds = load_credentials()
-        ds = build("drive", "v3", credentials=creds, cache_discovery=False)
-        ss = build("sheets", "v4", credentials=creds, cache_discovery=False)
-        return _extract_item_for_index(
-            _drive_service=ds,
-            _sheets_service=ss,
-            file_id=item["effectiveId"],
-            mime_type=item["effectiveMimeType"],
-            name=item["name"],
-            path=item["path"],
-            web_view_link=item.get("webViewLink", ""),
-            modified_time=item.get("modifiedTime", ""),
-        )
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-        future_to_item = {
-            pool.submit(_process_item, item): item
-            for item in parallel_queue
-        }
-        for future in as_completed(future_to_item):
-            completed += 1
-            item = future_to_item[future]
-            try:
-                _collect_result(future.result(), item)
-            except Exception as exc:
-                skipped.append(
-                    {
-                        "name": item["path"],
-                        "reason": str(exc)[:220],
-                        "link": _item_open_link(item),
-                    }
-                )
-            _report_progress(progress_callback, completed, total_items, item["path"])
+    # Phase 1: Process non-sheet files sequentially for better stability
+    # on memory-constrained Streamlit hosts.
+    for item in parallel_queue:
+        completed += 1
+        try:
+            extracted = _extract_item_for_index(
+                _drive_service=drive_service,
+                _sheets_service=sheets_service,
+                file_id=item["effectiveId"],
+                mime_type=item["effectiveMimeType"],
+                name=item["name"],
+                path=item["path"],
+                web_view_link=item.get("webViewLink", ""),
+                modified_time=item.get("modifiedTime", ""),
+            )
+            _collect_result(extracted, item)
+        except Exception as exc:
+            skipped.append(
+                {
+                    "name": item["path"],
+                    "reason": str(exc)[:220],
+                    "link": _item_open_link(item),
+                }
+            )
+        _report_progress(progress_callback, completed, total_items, item["path"])
 
     # Phase 2: Process Google Sheets sequentially with a small delay
     # to stay within the Sheets API per-minute quota
@@ -301,6 +290,11 @@ def _extract_item_for_index(
             item=item,
         )
         normalized = _normalize_extracted_text(text)
+        if len(normalized) > MAX_TOTAL_CHARS_PER_FILE:
+            normalized = (
+                normalized[:MAX_TOTAL_CHARS_PER_FILE]
+                + "\n\n[Truncated: file content exceeded indexing limit for app stability.]"
+            )
         if not normalized:
             return {
                 "document": None,
