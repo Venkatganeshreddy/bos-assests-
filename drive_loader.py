@@ -60,6 +60,7 @@ SHEET_META_FIELDS = "properties.title,sheets.properties.title"
 MAX_SHEET_ROWS = 1201
 MAX_INDEX_FILE_BYTES = 12 * 1024 * 1024
 MAX_TOTAL_CHARS_PER_FILE = 180_000
+MAX_SKIPPED_ITEMS = 250
 MAX_RETRIES = 3
 
 
@@ -147,6 +148,13 @@ def index_drive_folder_with_options(
 
     documents: list[DriveDocument] = []
     skipped: list[dict[str, str]] = []
+    skipped_total = 0
+
+    def _add_skipped(entry: dict[str, str]) -> None:
+        nonlocal skipped_total
+        skipped_total += 1
+        if len(skipped) < MAX_SKIPPED_ITEMS:
+            skipped.append(entry)
 
     items = _walk_folder(
         drive_service=drive_service,
@@ -165,7 +173,7 @@ def index_drive_folder_with_options(
     for _index, item in enumerate(items, start=1):
         size_bytes = _coerce_size_bytes(item.get("size"))
         if size_bytes is not None and size_bytes > MAX_INDEX_FILE_BYTES:
-            skipped.append(
+            _add_skipped(
                 {
                     "name": item["path"],
                     "reason": f"Skipped because file is larger than {MAX_INDEX_FILE_BYTES // (1024 * 1024)} MB.",
@@ -183,7 +191,7 @@ def index_drive_folder_with_options(
         if extracted.get("document"):
             documents.append(DriveDocument(**extracted["document"]))
         else:
-            skipped.append(extracted["skipped"])
+            _add_skipped(extracted["skipped"])
 
     # Phase 1: Process non-sheet files sequentially for better stability
     # on memory-constrained Streamlit hosts.
@@ -202,7 +210,7 @@ def index_drive_folder_with_options(
             )
             _collect_result(extracted, item)
         except Exception as exc:
-            skipped.append(
+            _add_skipped(
                 {
                     "name": item["path"],
                     "reason": str(exc)[:220],
@@ -228,7 +236,7 @@ def index_drive_folder_with_options(
             )
             _collect_result(extracted, item)
         except Exception as exc:
-            skipped.append(
+            _add_skipped(
                 {
                     "name": item["path"],
                     "reason": str(exc)[:220],
@@ -245,6 +253,7 @@ def index_drive_folder_with_options(
         "service_account_email": credentials.service_account_email,
         "documents": documents,
         "skipped": skipped,
+        "skipped_total": skipped_total,
     }
 
 

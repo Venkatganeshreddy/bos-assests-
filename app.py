@@ -782,7 +782,7 @@ def render_metrics(bundle: dict) -> None:
     metrics = [
         ("Indexed files", f"{indexed_files:,}", "readable files available"),
         ("Search chunks", f"{len(bundle['chunks']):,}", "retrieval-ready content blocks"),
-        ("Skipped files", f"{len(bundle['skipped']):,}", "unsupported, empty, or blocked"),
+        ("Skipped files", f"{bundle.get('skipped_total', len(bundle['skipped'])):,}", "unsupported, empty, or blocked"),
         ("Top formats", str(len(kind_counts)), top_formats),
     ]
 
@@ -919,7 +919,8 @@ def render_sidebar_skipped(bundle: dict | None) -> None:
     if not bundle or not bundle.get("skipped"):
         return
 
-    with st.expander(f"Unable to index ({len(bundle['skipped'])})", expanded=True):
+    skipped_count = bundle.get("skipped_total", len(bundle["skipped"]))
+    with st.expander(f"Unable to index ({skipped_count})", expanded=True):
         for item in bundle["skipped"]:
             link = item.get("link", "")
             if link:
@@ -936,6 +937,9 @@ def render_sidebar_skipped(bundle: dict | None) -> None:
                 ),
                 unsafe_allow_html=True,
             )
+        hidden_count = skipped_count - len(bundle["skipped"])
+        if hidden_count > 0:
+            st.caption(f"Showing first {len(bundle['skipped'])} skipped items for app stability.")
 
 
 if "messages" not in st.session_state:

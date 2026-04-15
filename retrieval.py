@@ -9,6 +9,7 @@ from drive_loader import DriveDocument
 MAX_CHUNKS_PER_DOCUMENT = 60
 MAX_TOTAL_CHUNKS = 3500
 MAX_VECTOR_TERMS = 36
+MAX_SEARCHABLE_TEXT_CHARS = 1400
 
 
 @dataclass
@@ -126,7 +127,7 @@ def retrieve(
     chunks: list[Chunk],
     vectorizer: object | None,
     matrix: object | None,
-    limit: int = 20,
+    limit: int = 12,
 ) -> list[tuple[Chunk, float]]:
     if not chunks or vectorizer is None or matrix is None:
         return []
@@ -150,7 +151,7 @@ def retrieve(
     ranked: list[tuple[Chunk, float]] = []
 
     for index, chunk in enumerate(chunks):
-        searchable = f"{chunk.file_name} {chunk.path} {chunk.text}".lower()
+        searchable = f"{chunk.file_name} {chunk.path} {chunk.text[:MAX_SEARCHABLE_TEXT_CHARS]}".lower()
         normalized_searchable = _normalize_search_text(searchable)
         title_searchable = _normalize_search_text(f"{chunk.file_name} {chunk.path}")
         score = float(base_scores[index])
@@ -258,7 +259,7 @@ def _looks_like_file_lookup(query: str) -> bool:
     return any(word in lowered for word in lookup_words)
 
 
-def build_context(retrieved: list[tuple[Chunk, float]], max_chars: int = 45000) -> str:
+def build_context(retrieved: list[tuple[Chunk, float]], max_chars: int = 22000) -> str:
     if not retrieved:
         return ""
 
