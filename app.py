@@ -1125,6 +1125,7 @@ if prompt:
                     model=model_name.strip() or DEFAULT_MODEL,
                     messages=model_messages + [{"role": "user", "content": prompt}],
                     context=context,
+                    source_count=len(sources),
                 )
 
             st.markdown(answer)
